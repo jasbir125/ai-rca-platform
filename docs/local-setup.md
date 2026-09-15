@@ -47,6 +47,34 @@ Postgres on 5432, which silently wins the connection over the Docker container o
 same name on `localhost`. If you don't have anything on 5432, you can still use 5433;
 just don't assume 5432 is talking to this stack.
 
+### Connecting directly to Postgres
+
+Local dev credentials only (`.env.example` is the source of truth — update both if you
+ever change these, and never commit real credentials the same way):
+
+| | |
+|---|---|
+| Host | `localhost` (from the host) / `postgres` (from inside the compose network) |
+| Port | `5433` on the host (see above for why not 5432) |
+| Database | `rca_platform` |
+| Username | `rca` |
+| Password | `rca_local_dev_only` |
+| JDBC URL | `jdbc:postgresql://localhost:5433/rca_platform` |
+
+One shared role, separated by **schema**, not by DB user:
+
+| Schema | Used by |
+|---|---|
+| `order_service` | `order-service`'s own tables |
+| `rca` | `rca-api` — incidents, evidence, hypotheses, timeline, recommendations, agent_executions |
+| `rag` | pgvector's `vector_store` table (RAG knowledge base) |
+
+```bash
+docker exec -it ai-rca-platform-postgres-1 psql -U rca -d rca_platform
+# \dn            list schemas
+# \dt rca.*      list rca-api's tables
+```
+
 ## 4. Verify
 
 ```bash
