@@ -1,0 +1,45 @@
+Investigate the following production incident and produce a root cause analysis.
+
+INCIDENT
+incidentId: {{incidentId}}
+service: {{service}}
+environment: {{environment}}
+severity: {{severity}}
+description: {{description}}
+window: {{windowStart}} to {{windowEnd}}
+
+LIVE EVIDENCE (gathered by specialized agents from Prometheus, Loki, and Jaeger for
+this exact incident window — this is real operational data, not a hypothetical):
+{{evidenceBlock}}
+
+ENTERPRISE KNOWLEDGE (retrieved from architecture docs, runbooks, SLAs, and previous
+incident reports — this describes expected/normal behavior and documented guidance,
+not what actually happened during this incident):
+{{knowledgeBlock}}
+
+Instructions:
+
+1. Generate multiple hypotheses for the root cause before settling on one (spec:
+   hypothesis-driven reasoning). For each hypothesis, state whether the evidence above
+   supports, contradicts, or is silent on it.
+2. Rank the hypotheses and identify the most probable root cause, citing the specific
+   evidence that supports it.
+3. If the live evidence conflicts (e.g. one source suggests failure while another
+   shows the same component healthy), say so explicitly rather than silently picking a
+   side.
+4. If the combined evidence is insufficient to identify a probable root cause, say so
+   plainly rather than guessing, and list what is still missing.
+5. Use the enterprise knowledge to judge whether observed values (latency, timeouts,
+   error rates) are within documented SLAs/normal ranges, or you have no basis for that
+   judgment — never assume normalcy that isn't supported by the retrieved knowledge or
+   evidence.
+6. If the enterprise knowledge includes a previous incident that resembles this one,
+   note it as a similar incident — but validate against the current evidence rather
+   than assuming the same root cause automatically applies.
+7. Set confidence as a number between 0 and 1 reflecting how strongly the evidence
+   supports your stated root cause, not how confident you feel in general.
+8. Any recommendation that would change production (rollback, config change, scale,
+   restart) must be flagged by setting requiresHumanApproval to true.
+9. recommendations, similarIncidents, and nextActions must each be a list of plain
+   strings — one short sentence per item (e.g. "INC-2026-0614 — same timeout
+   misconfiguration pattern"), never a list of nested JSON objects.

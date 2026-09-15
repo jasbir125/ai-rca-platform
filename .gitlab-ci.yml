@@ -1,0 +1,255 @@
+stages:
+  - validate
+  - test
+  - build
+  - security-scan
+  - docker-build
+  - docker-push
+  - deploy-dev
+  - integration-test
+  - deploy-uat
+  - deploy-prod
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress"
+  # Set in CI/CD variables, not here: AWS credentials, ECR registry, KUBE_CONFIG_*.
+
+.maven_cache: &maven_cache
+  cache:
+    key: maven-$CI_COMMIT_REF_SLUG
+    paths:
+      - .m2/repository
+
+# ---------------------------------------------------------------------------
+# validate
+# ---------------------------------------------------------------------------
+
+validate:services:
+  stage: validate
+  image: maven:3.9-eclipse-temurin-21
+  <<: *maven_cache
+  script:
+    - cd services && mvn $MAVEN_CLI_OPTS validate
+
+validate:rca-platform:
+  stage: validate
+  image: maven:3.9-eclipse-temurin-21
+  <<: *maven_cache
+  script:
+    - cd rca-platform && mvn $MAVEN_CLI_OPTS validate
+
+validate:helm:
+  stage: validate
+  image: alpine/helm:3.15.3
+  script:
+    - helm lint infrastructure/helm/rca-platform --set postgres.password=ci-lint-placeholder
+
+validate:terraform:
+  stage: validate
+  image: hashicorp/terraform:1.9
+  script:
+    - cd infrastructure/terraform
+    - terraform fmt -check -recursive
+    - terraform init -backend=false
+    - terraform validate
+
+# ---------------------------------------------------------------------------
+# test — unit/component tests only. *LiveTest classes need the real docker-compose
+# stack and are intentionally excluded from CI here; run them locally or add a
+# dedicated CI job with services: [docker:dind] + the compose stack if/when that's
+# worth the CI runtime cost.
+# ---------------------------------------------------------------------------
+
+.test_template: &test_template
+  stage: test
+  image: maven:3.9-eclipse-temurin-21
+  <<: *maven_cache
+  artifacts:
+    when: always
+    reports:
+      junit: "**/target/surefire-reports/TEST-*.xml"
+
+test:order-service:
+  <<: *test_template
+  script:
+    - cd services/order-service && mvn $MAVEN_CLI_OPTS test
+
+test:payment-service:
+  <<: *test_template
+  script:
+    - cd services/payment-service && mvn $MAVEN_CLI_OPTS test
+
+test:agent-framework:
+  <<: *test_template
+  script:
+    - cd rca-platform && mvn $MAVEN_CLI_OPTS -pl agent-framework -am test -Dtest='!*LiveTest,!*UnavailableTest'
+
+test:rca-api:
+  <<: *test_template
+  script:
+    - cd rca-platform && mvn $MAVEN_CLI_OPTS -pl rca-api -am test -Dtest='!*LiveTest'
+
+# ---------------------------------------------------------------------------
+# build
+# ---------------------------------------------------------------------------
+
+.build_template: &build_template
+  stage: build
+  image: maven:3.9-eclipse-temurin-21
+  <<: *maven_cache
+  artifacts:
+    paths:
+      - "**/target/*.jar"
+    expire_in: 1 day
+
+build:services:
+  <<: *build_template
+  script:
+    - cd services && mvn $MAVEN_CLI_OPTS -DskipTests package
+
+build:rca-platform:
+  <<: *build_template
+  script:
+    - cd rca-platform && mvn $MAVEN_CLI_OPTS -DskipTests package
+
+# ---------------------------------------------------------------------------
+# security-scan
+# ---------------------------------------------------------------------------
+
+security-scan:dependencies:
+  stage: security-scan
+  image: maven:3.9-eclipse-temurin-21
+  <<: *maven_cache
+  script:
+    - cd services && mvn $MAVEN_CLI_OPTS org.owasp:dependency-check-maven:check || true
+    - cd ../rca-platform && mvn $MAVEN_CLI_OPTS org.owasp:dependency-check-maven:check || true
+  allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - "**/target/dependency-check-report.html"
+
+# ---------------------------------------------------------------------------
+# docker-build / docker-push
+# ---------------------------------------------------------------------------
+
+.docker_images: &docker_images
+  - name: order-service
+    context: services/order-service
+    dockerfile: services/order-service/Dockerfile
+  - name: payment-service
+    context: services/payment-service
+    dockerfile: services/payment-service/Dockerfile
+  - name: rca-api
+    context: rca-platform
+    dockerfile: rca-platform/rca-api/Dockerfile
+
+docker-build:
+  stage: docker-build
+  image: docker:27
+  services: [docker:27-dind]
+  needs: ["build:services", "build:rca-platform"]
+  script:
+    - |
+      for svc in order-service payment-service; do
+        docker build -t "$CI_REGISTRY_IMAGE/$svc:$CI_COMMIT_SHORT_SHA" "services/$svc"
+        docker save "$CI_REGISTRY_IMAGE/$svc:$CI_COMMIT_SHORT_SHA" -o "$svc.tar"
+      done
+      docker build -t "$CI_REGISTRY_IMAGE/rca-api:$CI_COMMIT_SHORT_SHA" -f rca-platform/rca-api/Dockerfile rca-platform
+      docker save "$CI_REGISTRY_IMAGE/rca-api:$CI_COMMIT_SHORT_SHA" -o rca-api.tar
+  artifacts:
+    paths:
+      - "*.tar"
+    expire_in: 1 day
+
+docker-push:
+  stage: docker-push
+  image: docker:27
+  services: [docker:27-dind]
+  needs: ["docker-build"]
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - |
+      for svc in order-service payment-service rca-api; do
+        docker load -i "$svc.tar"
+        docker push "$CI_REGISTRY_IMAGE/$svc:$CI_COMMIT_SHORT_SHA"
+      done
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ---------------------------------------------------------------------------
+# deploy-dev — automatic on main
+# ---------------------------------------------------------------------------
+
+deploy-dev:
+  stage: deploy-dev
+  image: alpine/helm:3.15.3
+  needs: ["docker-push"]
+  environment:
+    name: dev
+  script:
+    - helm upgrade --install rca-platform infrastructure/helm/rca-platform
+      --namespace rca-platform --create-namespace
+      --set image.registry=$CI_REGISTRY_IMAGE
+      --set image.tag=$CI_COMMIT_SHORT_SHA
+      --set postgres.password=$DEV_POSTGRES_PASSWORD
+      --values infrastructure/helm/rca-platform/values-dev.yaml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ---------------------------------------------------------------------------
+# integration-test — against the freshly-deployed dev environment
+# ---------------------------------------------------------------------------
+
+integration-test:
+  stage: integration-test
+  image: curlimages/curl:8.9.1
+  needs: ["deploy-dev"]
+  script:
+    - curl -sf "$DEV_RCA_API_URL/actuator/health"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ---------------------------------------------------------------------------
+# deploy-uat — manual gate
+# ---------------------------------------------------------------------------
+
+deploy-uat:
+  stage: deploy-uat
+  image: alpine/helm:3.15.3
+  needs: ["integration-test"]
+  environment:
+    name: uat
+  script:
+    - helm upgrade --install rca-platform infrastructure/helm/rca-platform
+      --namespace rca-platform --create-namespace
+      --set image.registry=$CI_REGISTRY_IMAGE
+      --set image.tag=$CI_COMMIT_SHORT_SHA
+      --set postgres.password=$UAT_POSTGRES_PASSWORD
+      --values infrastructure/helm/rca-platform/values-uat.yaml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+
+# ---------------------------------------------------------------------------
+# deploy-prod — manual gate, production requires explicit approval (spec section 39)
+# ---------------------------------------------------------------------------
+
+deploy-prod:
+  stage: deploy-prod
+  image: alpine/helm:3.15.3
+  needs: ["deploy-uat"]
+  environment:
+    name: prod
+  script:
+    - helm upgrade --install rca-platform infrastructure/helm/rca-platform
+      --namespace rca-platform --create-namespace
+      --set image.registry=$CI_REGISTRY_IMAGE
+      --set image.tag=$CI_COMMIT_SHORT_SHA
+      --set postgres.password=$PROD_POSTGRES_PASSWORD
+      --values infrastructure/helm/rca-platform/values-prod.yaml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  allow_failure: false

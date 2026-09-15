@@ -1,0 +1,8 @@
+payment:
+  latency-ms: 1
+  failure-rate: 0.0
+
+management:
+  tracing:
+    sampling:
+      probability: 0.0

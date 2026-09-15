@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored) and fill in. No account IDs, credentials, or
+# secrets belong in this repo - only these plain configuration values.
+
+aws_region  = "us-east-1"
+environment = "dev"
+
+# vpc_cidr                = "10.42.0.0/16"
+# availability_zone_count = 3
+# eks_cluster_version     = "1.30"
+# eks_node_instance_types = ["m6i.large"]
+# eks_node_desired_size   = 3
+
+tags = {
+  Owner = "your-team"
+}

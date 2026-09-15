@@ -1,0 +1,28 @@
+# Overrides for the production environment.
+
+ingress:
+  host: rca-platform.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: "" # set to your ACM cert ARN
+
+podDisruptionBudget:
+  minAvailable: 2
+
+services:
+  order-service:
+    replicas: 3
+    hpa:
+      minReplicas: 3
+      maxReplicas: 10
+  payment-service:
+    replicas: 3
+    hpa:
+      minReplicas: 3
+      maxReplicas: 10
+  rca-api:
+    replicas: 3
+    hpa:
+      minReplicas: 3
+      maxReplicas: 6

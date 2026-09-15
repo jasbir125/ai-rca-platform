@@ -1,0 +1,8 @@
+apiVersion: v2
+name: rca-platform
+description: >
+  AI-powered microservice RCA platform: the sample services (order-service,
+  payment-service) plus rca-api. Deploys to any Kubernetes cluster, including EKS.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

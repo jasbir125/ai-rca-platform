@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.airca</groupId>
+        <artifactId>services</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>order-service</artifactId>
+    <name>order-service</name>
+    <description>
+        Creates orders and calls Payment Service with a configurable timeout. The primary
+        demo scenario reduces this timeout below Payment Service's real latency, and the
+        RCA platform must discover why from evidence, not from a hardcoded answer.
+    </description>
+
+    <!--
+        Testcontainers is deliberately NOT used here: this environment's Docker Desktop
+        (API >= 1.40 only) rejects the API version docker-java defaults to across the
+        whole 1.x Testcontainers line (and 2.x isn't compatible with Spring Boot 3.3's
+        dependency management), so Testcontainers-based tests fail for infra reasons
+        unrelated to this service's code. JPA/Flyway/Postgres wiring is instead verified
+        live against the real docker-compose Postgres (see docs/local-setup.md) as part
+        of each phase's end-to-end validation; unit/component tests here use Mockito for
+        the repository and a real embedded WireMock server for Payment Service so the
+        HTTP timeout/error handling is exercised against real sockets.
+    -->
+    <properties>
+        <!-- WireMock 3.13.x needs a newer Apache HttpClient5 than Spring Boot 3.3 manages. -->
+        <httpclient5.version>5.6.4</httpclient5.version>
+        <httpcore5.version>5.4.3</httpcore5.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-jetty12</artifactId>
+            <version>3.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

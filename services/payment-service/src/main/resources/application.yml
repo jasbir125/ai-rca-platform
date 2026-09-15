@@ -1,0 +1,42 @@
+server:
+  port: ${PAYMENT_SERVICE_PORT:8082}
+
+spring:
+  application:
+    name: payment-service
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+payment:
+  latency-ms: ${PAYMENT_LATENCY_MS:700}
+  failure-rate: ${PAYMENT_FAILURE_RATE:0.0}
+
+app:
+  environment: ${APP_ENVIRONMENT:local}
+  version: ${APP_VERSION:1.0.0}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: ${app.environment}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${TRACING_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    root: INFO
+    com.airca: INFO

@@ -1,0 +1,12 @@
+# Overrides for the UAT environment.
+
+ingress:
+  host: rca-platform-uat.example.com
+
+services:
+  order-service:
+    replicas: 2
+  payment-service:
+    replicas: 2
+  rca-api:
+    replicas: 2

@@ -1,0 +1,44 @@
+### Java / Maven ###
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties
+
+### Node / UI ###
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+### Env / secrets ###
+.env
+*.env.local
+*.pem
+*.key
+
+### IDE ###
+.idea/
+*.iml
+.vscode/
+
+### OS ###
+.DS_Store
+
+### Terraform ###
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+crash.log
+crash.*.log
+
+### Helm ###
+**/charts/*.tgz
+
+### Logs / runtime ###
+*.log
+logs/
+infrastructure/docker/volumes/

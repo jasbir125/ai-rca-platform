@@ -1,0 +1,100 @@
+# Default values for rca-platform. Override per-environment with -f values-<env>.yaml.
+
+namespace: rca-platform
+
+image:
+  # e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/rca-platform - empty means the
+  # image name is used as-is (useful for a local registry / kind load).
+  registry: ""
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: rca-platform
+  # annotations: {eks.amazonaws.com/role-arn: arn:aws:iam::...:role/rca-platform}
+
+postgres:
+  host: postgres
+  port: 5432
+  database: rca_platform
+
+ollama:
+  # AI_PROVIDER=BEDROCK for a non-local deployment - see docs/aws-setup.md.
+  provider: OLLAMA
+  baseUrl: http://ollama:11434
+  llmModel: "qwen3.5:latest"
+  embeddingModel: "nomic-embed-text"
+
+observability:
+  prometheusUrl: http://prometheus:9090
+  lokiUrl: http://loki:3100
+  jaegerUrl: http://jaeger:16686
+
+ingress:
+  enabled: true
+  className: alb
+  host: rca-platform.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  minAvailable: 1
+
+# One entry per deployable. `image` is the repository name (combined with
+# image.registry/image.tag above); `port` is both the container port and the Service
+# port; `env` is merged with the shared secret/configmap values every service gets.
+services:
+  order-service:
+    image: order-service
+    port: 8081
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    env:
+      PAYMENT_SERVICE_URL: http://payment-service:8082
+      PAYMENT_CALL_TIMEOUT_MS: "3000"
+    exposeIngress: false
+
+  payment-service:
+    image: payment-service
+    port: 8082
+    replicas: 2
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    env:
+      PAYMENT_LATENCY_MS: "700"
+      PAYMENT_FAILURE_RATE: "0.0"
+    exposeIngress: false
+
+  rca-api:
+    image: rca-api
+    port: 8090
+    replicas: 2
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: 1000m, memory: 1024Mi}
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+    env: {}
+    exposeIngress: true
+    ingressPath: /

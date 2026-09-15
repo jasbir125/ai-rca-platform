@@ -1,0 +1,34 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: service
+    pipeline_stages:
+      # Every service in this repo logs single-line JSON (logback-spring.xml
+      # LogstashEncoder), so parsed fields become real Loki labels the Log Agent can
+      # filter on later (service/environment/level), instead of opaque log text.
+      - json:
+          expressions:
+            log_level: level
+            log_service: service
+            log_environment: environment
+      - labels:
+          log_level:
+          log_service:
+          log_environment:

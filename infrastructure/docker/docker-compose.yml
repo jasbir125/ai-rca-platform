@@ -1,0 +1,167 @@
+name: ai-rca-platform
+
+networks:
+  rca-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rca_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-rca}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rca_local_dev_only}
+    ports:
+      # Host port deliberately not 5432 - see .env.example.
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rca} -d ${POSTGRES_DB:-rca_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [rca-net]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [rca-net]
+
+  loki:
+    image: grafana/loki:2.9.8
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks: [rca-net]
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on: [loki]
+    networks: [rca-net]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks: [rca-net]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus, loki, jaeger]
+    networks: [rca-net]
+
+  payment-service:
+    build:
+      context: ../../services/payment-service
+    environment:
+      PAYMENT_SERVICE_PORT: 8082
+      PAYMENT_LATENCY_MS: ${PAYMENT_LATENCY_MS:-700}
+      PAYMENT_FAILURE_RATE: ${PAYMENT_FAILURE_RATE:-0.0}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+      TRACING_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8082:8082"
+    depends_on: [jaeger]
+    networks: [rca-net]
+
+  order-service:
+    build:
+      context: ../../services/order-service
+    environment:
+      ORDER_SERVICE_PORT: 8081
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-rca_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-rca}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rca_local_dev_only}
+      PAYMENT_SERVICE_URL: http://payment-service:8082
+      PAYMENT_CALL_TIMEOUT_MS: ${PAYMENT_CALL_TIMEOUT_MS:-3000}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+      TRACING_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    networks: [rca-net]
+
+  rca-api:
+    build:
+      # context is rca-platform/ (not rca-api/) so the Dockerfile can also COPY the
+      # sibling knowledge/ directory - see rca-platform/rca-api/Dockerfile.
+      context: ../../rca-platform
+      dockerfile: rca-api/Dockerfile
+    environment:
+      RCA_API_PORT: 8090
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-rca_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-rca}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rca_local_dev_only}
+      AI_PROVIDER: ${AI_PROVIDER:-OLLAMA}
+      # Ollama runs on the host, not in this compose network.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.5:latest}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      JAEGER_URL: http://jaeger:16686
+      RAG_KNOWLEDGE_BASE_PATH: /knowledge
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+      # Allows the local web UI (ui/, a separate Vite dev server origin) to call this
+      # API from a browser.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      order-service:
+        condition: service_started
+    networks: [rca-net]

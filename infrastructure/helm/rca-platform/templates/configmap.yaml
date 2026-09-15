@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rca-platform-config
+  namespace: {{ .Values.namespace }}
+data:
+  POSTGRES_HOST: {{ .Values.postgres.host | quote }}
+  POSTGRES_PORT: {{ .Values.postgres.port | quote }}
+  POSTGRES_DB: {{ .Values.postgres.database | quote }}
+  AI_PROVIDER: {{ .Values.ollama.provider | quote }}
+  OLLAMA_BASE_URL: {{ .Values.ollama.baseUrl | quote }}
+  LLM_MODEL: {{ .Values.ollama.llmModel | quote }}
+  EMBEDDING_MODEL: {{ .Values.ollama.embeddingModel | quote }}
+  PROMETHEUS_URL: {{ .Values.observability.prometheusUrl | quote }}
+  LOKI_URL: {{ .Values.observability.lokiUrl | quote }}
+  JAEGER_URL: {{ .Values.observability.jaegerUrl | quote }}

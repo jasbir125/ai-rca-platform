@@ -1,0 +1,24 @@
+# Overrides for the dev environment. Merge with values.yaml via
+# `helm upgrade -f values.yaml -f values-dev.yaml` (Helm merges automatically when both
+# are passed, or when the CI job passes just this one - Helm always loads values.yaml
+# first as the base).
+
+ingress:
+  host: rca-platform-dev.example.com
+
+services:
+  order-service:
+    replicas: 1
+    hpa:
+      minReplicas: 1
+      maxReplicas: 2
+  payment-service:
+    replicas: 1
+    hpa:
+      minReplicas: 1
+      maxReplicas: 2
+  rca-api:
+    replicas: 1
+    hpa:
+      minReplicas: 1
+      maxReplicas: 2

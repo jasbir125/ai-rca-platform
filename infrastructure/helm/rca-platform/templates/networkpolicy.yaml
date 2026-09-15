@@ -1,0 +1,28 @@
+{{/*
+  Baseline "same namespace only" policy. On EKS with an ALB target-type ip (see
+  ingress.yaml), the load balancer talks to pod IPs directly rather than through a
+  cluster-local Ingress controller pod, so NetworkPolicy alone won't gate that path -
+  pair this with a VPC/security-group boundary (see infrastructure/terraform) for the
+  ingress-exposed service (rca-api) in a real deployment.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- range $name, $svc := .Values.services }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-same-namespace
+  namespace: {{ $.Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.namespace }}
+---
+{{- end }}
+{{- end }}
